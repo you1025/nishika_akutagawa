@@ -89,7 +89,7 @@ read_test_data <- function() {
 
 
 # Cross Validation
-create_cv <- function(data, v = 5, seed = 1234) {
+create_cv <- function(data, v = 5, seed = 1726) {
   set.seed(seed)
   
   rsample::vfold_cv(data, v = v, strata = "author")
@@ -148,6 +148,24 @@ add_line_info <- function(target_data, rawdata) {
     # 作品単位に集計
     dplyr::group_by(writing_id) %>%
     dplyr::summarise(
+
+      # 行ごとのゆらぎ
+      min_characters = min(characters),
+      max_characters = max(characters),
+      sd_characters  = sd(characters),
+      min_katakana_ratio = min(katakanas / characters),
+      max_katakana_ratio = max(katakanas / characters),
+      sd_katakana_ratio  = sd(katakanas  / characters),
+      min_kanji_ratio = min(kanjis / characters),
+      max_kanji_ratio = max(kanjis / characters),
+      sd_kanji_ratio  = sd(kanjis  / characters),
+      min_touten_ratio = min(toutens / characters),
+      max_touten_ratio = max(toutens / characters),
+      sd_touten_ratio  = sd(toutens  / characters),
+      min_touten = min(toutens),
+      max_touten = max(toutens),
+      sd_touten  = sd(toutens),
+
       # 行全体の統計量
       line_count = n(),
       characters = sum(characters),
