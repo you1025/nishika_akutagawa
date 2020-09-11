@@ -21,17 +21,17 @@ load_train_data <- function(path) {
     )
 }
 
-write_train_data <- function(data) {
+write_train_data <- function(data, path) {
   readr::write_csv(
     data,
-    path = "models/LightGBM_01/data/input/train_data.csv",
+    path = path,
     col_names = T,
     append = F
   )
 }
-read_train_data <- function() {
+read_train_data <- function(path) {
   readr::read_csv(
-    file = "models/LightGBM_01/data/input/train_data.csv",
+    file = path,
     col_types = cols(
       .default = col_double(),
       writing_id = col_integer(),
@@ -63,17 +63,17 @@ load_test_data <- function(path) {
     )
 }
 
-write_test_data <- function(data) {
+write_test_data <- function(data, path) {
   readr::write_csv(
     data,
-    path = "models/LightGBM_01/data/input/test_data.csv",
+    path = path,
     col_names = T,
     append = F
   )
 }
-read_test_data <- function() {
+read_test_data <- function(path) {
   readr::read_csv(
-    file = "models/LightGBM_01/data/input/test_data.csv",
+    file = path,
     col_types = cols(
       .default = col_double(),
       writing_id = col_integer(),
@@ -225,22 +225,24 @@ make_morphological_properties <- function(data, mypref = 1) {
         tidyr::unnest(mecab)
     })
 }
-write_morphological_data <- function(data, path) {
-  readr::write_csv(data, path = path, append = F, col_names = T)
-}
-load_morphological_data <- function(path) {
+
+get_morphological_data <- function(data, path) {
+  
+  if(!file.exists(path)) {
+    make_morphological_properties(data) %>%
+      readr::write_csv(path = path, append = F, col_names = T)
+  }
+
   readr::read_csv(
     file = path,
     col_types = cols(
+      writing_id = col_integer(),
       pos = col_character(),
-      morph = col_character(),
-      n = col_integer()
+      morph = col_character()
     )
   )
 }
-# make_morphological_properties(df.train.raw) %>%
-#   write_morphological_data(path = "models/LightGBM_01/data/input/morphological_data.csv")
-# load_morphological_data("models/LightGBM_01/data/input/morphological_data.csv")
+
 
 get_top_morphes <- function(data) {
 
@@ -250,6 +252,8 @@ get_top_morphes <- function(data) {
     dplyr::filter(
       !(morph %in% c("、", "。"))
     ) %>%
+
+    dplyr::count(pos, morph, sort = T) %>%
 
     dplyr::mutate(
       rank = dplyr::row_number(desc(n)),
@@ -266,18 +270,11 @@ get_top_morphes <- function(data) {
       morph
     )
 }
-#get_top_morphes(df.morphes)
 
-add_morph_info <- function(target_data, morph_data = NULL) {
-
-  # 形態素解析の実行
-  df.morphes <- morph_data
-  if(is.null(df.morphes)) {
-    df.morphes <- load_morphological_data("models/LightGBM_01/data/input/morphological_data.csv")
-  }
+add_morph_info <- function(target_data, morph_data) {
 
   # 上位の形態素を抽出
-  df.top_morphes <- get_top_morphes(df.morphes)
+  df.top_morphes <- get_top_morphes(morph_data)
 
   df.morph_ratios <- target_data %>%
 
@@ -310,5 +307,48 @@ add_morph_info <- function(target_data, morph_data = NULL) {
     dplyr::left_join(df.morph_ratios, by = "writing_id")
 }
 
+add_pos_ratio_before_period <- function(target_data, morph_data, period, prefix) {
+
+  df.pos_ratios <- morph_data %>%
+
+    # 読点の直前の形態素のみを抽出
+    dplyr::group_by(writing_id) %>%
+    dplyr::mutate(next_morph = lead(morph)) %>%
+    dplyr::ungroup() %>%
+    dplyr::filter(next_morph == period) %>%
+
+    # 品詞ごとにカウント
+    dplyr::count(writing_id, pos) %>%
+
+    # 品詞ごとの比率を算出
+    dplyr::group_by(writing_id) %>%
+    dplyr::mutate(ratio = n / sum(n)) %>%
+    dplyr::ungroup() %>%
+
+    dplyr::mutate(
+      pos = dplyr::case_when(
+        pos == "名詞"     ~ "pos_01",
+        pos == "動詞"     ~ "pos_02",
+        pos == "形容詞"   ~ "pos_03",
+        pos == "助詞"     ~ "pos_04",
+        pos == "助動詞"   ~ "pos_05",
+        pos == "副詞"     ~ "pos_06",
+        pos == "接続詞"   ~ "pos_07",
+        pos == "接頭詞"   ~ "pos_08",
+        pos == "連体詞"   ~ "pos_09",
+        pos == "感動詞"   ~ "pos_10",
+        pos == "フィラー" ~ "pos_11",
+        pos == "記号"     ~ "pos_12",
+        T                 ~ "pos_99"
+      )
+    ) %>%
+    dplyr::arrange(pos) %>%
+
+    # long-form => wide-form
+    dplyr::select(-n) %>%
+    tidyr::pivot_wider(names_from = pos, names_prefix = prefix, values_from = ratio, values_fill = list(ratio = 0))
+
+  dplyr::left_join(target_data, df.pos_ratios, by = "writing_id")
+}
 
 
